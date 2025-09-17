@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Socket.IO Only Demo</title>
+  </head>
+  <body>
+    <h1>Patients – Live</h1>
+
+    <div>
+      <input id="nameInput" placeholder="Patient name" />
+      <button id="createBtn">Create</button>
+    </div>
+
+    <ul id="list"></ul>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+      const ns = '/patients';
+      const socket = io(ns, { auth: { token: 'demo' } });
+
+      const list = document.getElementById('list');
+      const nameInput = document.getElementById('nameInput');
+      const createBtn = document.getElementById('createBtn');
+
+      const patients = new Map();
+
+      function render() {
+        list.innerHTML = '';
+        for (const p of patients.values()) {
+          const li = document.createElement('li');
+          li.innerHTML = `
+            <strong>${p.name}</strong> (#${p.id}) – HR: ${p.vitals.hr}, SpO2: ${p.vitals.spo2}, BP: ${p.vitals.bp}
+            <button data-id="${p.id}" class="upd">Update Vitals</button>
+            <button data-id="${p.id}" class="del">Delete</button>
+          `;
+          list.appendChild(li);
+        }
+      }
+
+      // snapshot on connect
+      socket.on('snapshot', (arr) => {
+        arr.forEach((p) => patients.set(p.id, p));
+        render();
+      });
+
+      // live events
+      socket.on('patient:created', (p) => {
+        console.log('new patient', p);
+        patients.set(p.id, p); render(); });
+      socket.on('patient:vitals:updated', ({ id, vitals }) => {
+        const p = patients.get(id); if (!p) return; p.vitals = vitals; render();
+      });
+      socket.on('patient:deleted', ({ id }) => { patients.delete(id); render(); });
+
+      // actions
+      createBtn.onclick = () => {
+        const name = nameInput.value.trim() || 'New Patient';
+        socket.emit('patient:create', { name }, (ack) => {
+          if (!ack?.ok) return alert('Create failed');
+          console.log('created id', ack.id);
+
+        //   // update UI cho chính client tạo
+        //   patients.set(ack.id, { id: ack.id, name, vitals: { hr: 72, spo2: 98, bp: '120/80' } });
+        //   render();
+        });
+      };
+
+      list.onclick = (e) => {
+        const t = e.target;
+        const id = t.getAttribute?.('data-id');
+        if (!id) return;
+
+        if (t.className === 'upd') {
+          const hr = Math.floor(60 + Math.random() * 40);
+          const spo2 = Math.floor(95 + Math.random() * 5);
+          const bp = `${110 + Math.floor(Math.random()*20)}/${70 + Math.floor(Math.random()*15)}`;
+          socket.emit('patient:vitals:update', { id, vitals: { hr, spo2, bp } }, (ack) => {
+            if (!ack?.ok) alert('Update failed');
+          });
+        }
+
+        if (t.className === 'del') {
+          socket.emit('patient:delete', { id }, (ack) => {
+            if (!ack?.ok) alert('Delete failed');
+          });
+        }
+      };
+    </script>
+  </body>
+</html>
